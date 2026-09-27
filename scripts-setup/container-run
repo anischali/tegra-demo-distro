@@ -1,0 +1,58 @@
+#! /bin/bash
+
+set -Euo pipefail
+readonly curr_dir="$(realpath $(dirname ${0}))"
+
+function usage() {
+  cat << EOF
+Usage: $0 --container <name>
+
+Arguments:
+  -c|--container         Docker image to use (required)
+  -r|--runtime-args      docker extra arguments. 
+Example:
+  $0 -r "-e PKCS11_PROXY_SOCKET=tcp://127.0.0.1:2345" -r "-e PKCS11_PIN=1234" -c ghcr.io/siemens/kas/kas:latest . ./setup-env --machine jetson-agx-orin-devkit --distro tegrademo build
+EOF
+  exit 1
+}
+
+yocto_home="${curr_dir}/.."
+container=""
+params=""
+extra_args=""
+
+while [[ "$#" -gt 0 ]]; do
+  case $1 in
+    -c|--container) container="$2"; shift ;;
+    -r|--runtime-args) extra_args="${extra_args} ${2}"; shift ;;
+    -h|--help) usage; ;;
+    *) params="$params $1 "; ;;
+  esac
+  shift
+done
+
+[ -z "${container}" ] && usage
+
+function run() {
+    passwd=$(mktemp)
+    {
+        docker run -t "${container}" cat /etc/passwd
+        echo "$(id -u -n):x:$(id -u):$(id -g)::${HOME}:/bin/sh"
+    } > "${passwd}"
+    
+    docker run \
+        --user $(id -u):$(id -g) \
+        --userns host \
+        -v "${yocto_home}:${yocto_home}:z" \
+        -v "${HOME}/.ssh:${HOME}/.ssh:z" \
+        -v "${passwd}:/etc/passwd:z" \
+        -w "${PWD}" \
+        ${extra_args} \
+        --net host \
+        --rm \
+        -it "${container}" /bin/bash -c "$* && bash"
+    
+    rm "${passwd}"
+}
+
+run "${params}"

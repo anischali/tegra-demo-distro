@@ -1,0 +1,67 @@
+# openssl.cnf — OpenSSL 3.x configuration supporting both the modern Provider
+# API and the legacy Engine API through pkcs11-proxy.
+#
+# Provider API  — used by: openssl dgst/req/pkey, any OpenSSL 3.x app
+# Engine API    — used by: mkimage -N pkcs11, older tools built against ENGINE_*
+#
+# Both point to libpkcs11-proxy.so so they share the same daemon connection.
+#
+# Prerequisites:
+#   pkcs11-provider  →  /usr/lib/ossl-modules/pkcs11.so
+#   libengine-pkcs11 →  /usr/lib/engines-3/pkcs11.so  (or engines-1.1/ on older)
+#   libpkcs11-proxy  →  /usr/lib/libpkcs11-proxy.so
+#
+# Activate for a single command:
+#   OPENSSL_CONF=/usr/local/etc/pkcs11/openssl.cnf openssl …
+#
+# ── Key URI format (RFC 7512) ──────────────────────────────────────────────────
+#
+#   pkcs11:token=<label>;object=<name>;type=private
+#   pkcs11:token=<label>;id=%<hex-id>;type=private
+#
+# ── PIN ────────────────────────────────────────────────────────────────────────
+#
+#   Provider reads PKCS11_PIN automatically.
+#   Engine reads PKCS11_PIN or embed pin-value= in the URI.
+#
+#   PKCS11_PIN=1234 openssl dgst -sha256 -sign "pkcs11:token=mytok;object=fit;type=private" …
+
+openssl_conf = openssl_init
+
+# ── Both APIs activated together ───────────────────────────────────────────────
+
+[openssl_init]
+providers = provider_sect
+engines   = engine_sect
+
+# ── Provider API (OpenSSL 3.x native) ─────────────────────────────────────────
+
+[provider_sect]
+default = default_sect
+pkcs11  = pkcs11_sect
+
+[default_sect]
+activate = 1
+
+[pkcs11_sect]
+module = /usr/lib/x86_64-linux-gnu/ossl-modules/pkcs11.so
+pkcs11-module-path        = /usr/lib/libpkcs11-proxy.so
+pkcs11-module-token-pin   = ${ENV::PKCS11_PIN}
+pkcs11-module-allow-export = 0
+activate = 1
+
+# ── Engine API (legacy, for mkimage -N pkcs11 and similar tools) ───────────────
+
+[engine_sect]
+pkcs11 = pkcs11_engine_sect
+
+[pkcs11_engine_sect]
+engine_id    = pkcs11
+dynamic_path = /usr/lib/x86_64-linux-gnu/engines-3/pkcs11.so
+MODULE_PATH  = /usr/lib/libpkcs11-proxy.so
+init         = 0
+
+# ── Algorithm defaults ─────────────────────────────────────────────────────────
+
+[algorithm_sect]
+default_md = sha256
